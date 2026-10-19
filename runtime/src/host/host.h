@@ -18,6 +18,7 @@ extern int g_renderer_override;  // --renderer opengl|vulkan: 0 / 1, -1 = the sa
 
 void host_poll();                    // pumps OS events (and opens the settings screen)
 uint64_t host_frame_count();
+uint64_t host_image_count();  // distinct images shown so far
 bool host_quit_requested();
 void host_request_quit();            // close the game (as closing the window does)
 void host_present(const GpuDisplay& d);

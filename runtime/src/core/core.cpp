@@ -78,40 +78,50 @@ void trace_dump() {
 // Freeze report: a thread that notices when no frame has come for 8 s (outside the settings and chapter
 // menus, which stop the game on purpose) and writes, once per freeze, what the CPU was doing - its
 // registers and the return addresses on its stack - plus the RAM to debug/, like a crash.
+// Stall report, the same once per stall: frames go on but no image has been shown for 15 s (the game
+// stuck in a loop of its own, e.g. waiting on the drive while it loads), with the drive's state too.
 // (Read from another thread while the game runs: a snapshot, enough to see where it is stuck.)
 bool g_host_menu_open = false;
+static void stuck_report(const char* what, uint64_t frame, bool with_cd) {
+    const R3000 c = *g_cpu;
+    std::fprintf(stderr, "%s at frame %llu, cycles=%llu ra=%08X sp=%08X\n", what, (unsigned long long)frame,
+                 (unsigned long long)c.cycles, c.r[31], c.r[29]);
+    for (int i = 0; i < 32; i += 8) {
+        std::fprintf(stderr, "  r%-2d", i);
+        for (int k = i; k < i + 8; k++) std::fprintf(stderr, " %08X", c.r[k]);
+        std::fprintf(stderr, "\n");
+    }
+    std::fprintf(stderr, "  stack:");
+    for (uint32_t s = c.r[29] & 0x1FFFFC, n = 0; s < PSX_RAM_SIZE && n < 24; s += 4) {
+        uint32_t w;
+        std::memcpy(&w, psx_ram + s, 4);
+        if (w >= 0x80010000u && w < 0x800A0000u && !(w & 3)) std::fprintf(stderr, " %08X", w), n++;
+    }
+    std::fprintf(stderr, "\n");
+    if (with_cd) std::fprintf(stderr, "  drive: %s\n", cdrom_debug().c_str());
+    std::error_code ec;
+    std::filesystem::create_directories("debug", ec);
+    if (FILE* out = std::fopen("debug/freeze_ram.bin", "wb")) {
+        std::fwrite(psx_ram, 1, PSX_RAM_SIZE, out);
+        std::fclose(out);
+        std::fprintf(stderr, "  RAM saved to debug/freeze_ram.bin\n");
+    }
+}
+
 void watchdog_start() {
     std::thread([] {
-        uint64_t last = ~0ull;
-        int still = 0;
+        uint64_t last = ~0ull, last_image = ~0ull;
+        int still = 0, dark = 0;
         for (;;) {
             SDL_Delay(1000);
-            const uint64_t f = host_frame_count();
+            const uint64_t f = host_frame_count(), image = host_image_count();
             still = (f == last && !g_host_menu_open) ? still + 1 : 0;
+            dark = (f != last && image == last_image && !g_host_menu_open) ? dark + 1 : 0;
             last = f;
-            if (still != 8 || !g_cpu) continue;
-            const R3000 c = *g_cpu;
-            std::fprintf(stderr, "FREEZE: no frame for 8 s at frame %llu, cycles=%llu ra=%08X sp=%08X\n",
-                         (unsigned long long)f, (unsigned long long)c.cycles, c.r[31], c.r[29]);
-            for (int i = 0; i < 32; i += 8) {
-                std::fprintf(stderr, "  r%-2d", i);
-                for (int k = i; k < i + 8; k++) std::fprintf(stderr, " %08X", c.r[k]);
-                std::fprintf(stderr, "\n");
-            }
-            std::fprintf(stderr, "  stack:");
-            for (uint32_t s = c.r[29] & 0x1FFFFC, n = 0; s < PSX_RAM_SIZE && n < 24; s += 4) {
-                uint32_t w;
-                std::memcpy(&w, psx_ram + s, 4);
-                if (w >= 0x80010000u && w < 0x800A0000u && !(w & 3)) std::fprintf(stderr, " %08X", w), n++;
-            }
-            std::fprintf(stderr, "\n");
-            std::error_code ec;
-            std::filesystem::create_directories("debug", ec);
-            if (FILE* out = std::fopen("debug/freeze_ram.bin", "wb")) {
-                std::fwrite(psx_ram, 1, PSX_RAM_SIZE, out);
-                std::fclose(out);
-                std::fprintf(stderr, "  RAM saved to debug/freeze_ram.bin\n");
-            }
+            last_image = image;
+            if (!g_cpu) continue;
+            if (still == 8) stuck_report("FREEZE: no frame for 8 s", f, false);
+            if (dark == 15) stuck_report("STALL: frames run but no new image for 15 s", f, true);
         }
     }).detach();
 }

@@ -177,6 +177,7 @@ void cdrom_voice_poll();  // once a frame: the rest of a voice line a data read 
 // drive; false while one is still playing (also the rest of a cut line).
 bool cdrom_side_voice(uint32_t lba, uint32_t end, int chan);
 bool cdrom_side_busy();
+std::string cdrom_debug();  // the drive's state in one line, for the stall report
 // Direct file access for the BIOS HLE (FlushCache-free loaders, open("cdrom:...")).
 bool cdrom_find_file(const char* path, uint32_t* lba, uint32_t* size);
 bool cdrom_read_sector_user(uint32_t lba, uint8_t out[2048]);

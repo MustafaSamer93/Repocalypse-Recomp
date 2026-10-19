@@ -484,8 +484,10 @@ bool host_init(const char* title, int scale) {
     if (desktop)
         log_msg(LogCat::Host, "desktop %dx%d; window %dx%d%s", desktop->w, desktop->h, win_w, win_h,
                 g_fullscreen ? " (fullscreen)" : "");
-    // APOC_BACKGROUND (test runs): the window opens behind the others, without focus.
-    const bool background = std::getenv("APOC_BACKGROUND") != nullptr;
+    // APOC_BACKGROUND (test runs): the window opens behind the others, without focus; =min minimized.
+    const char* bg_env = std::getenv("APOC_BACKGROUND");
+    const bool background = bg_env != nullptr;
+    const bool minimized = background && std::strcmp(bg_env, "min") == 0;
     // The renderer: Vulkan if chosen (and it starts), otherwise OpenGL.
     auto open_window = [&](Backend b) {
         render_select(b);
@@ -505,7 +507,10 @@ bool host_init(const char* title, int scale) {
             SetWindowPos((HWND)SDL_GetPointerProperty(SDL_GetWindowProperties(g_window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr),
                          HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 #endif
-        if (present_init(g_window)) return true;
+        if (present_init(g_window)) {
+            if (minimized) SDL_MinimizeWindow(g_window);  // after the renderer starts (Vulkan needs a size)
+            return true;
+        }
         present_shutdown();
         SDL_DestroyWindow(g_window);
         g_window = nullptr;
@@ -585,6 +590,7 @@ void host_set_turbo(bool on) { g_force_turbo = on; }
 bool host_quit_requested() { return g_quit; }
 void host_request_quit() { g_quit = true; }
 uint64_t host_frame_count() { return g_frame; }
+uint64_t host_image_count() { return g_images; }
 
 void host_present(const GpuDisplay& d) {
     g_frame++;

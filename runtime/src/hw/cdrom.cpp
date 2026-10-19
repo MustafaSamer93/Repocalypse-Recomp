@@ -1,6 +1,7 @@
 // CD-ROM controller (0x1F801800-0x1F801803) backed by the user's .cue/.bin image,
 // including XA-ADPCM decoding and CD-DA playback into the SPU's CD input.
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <deque>
 #include <filesystem>
@@ -719,6 +720,16 @@ bool cdrom_side_voice(uint32_t lba, uint32_t end, int chan) {
 }
 
 bool cdrom_side_busy() { return g_side.next || g_carry.next || spu_side_queued() > 0; }
+
+// (read from the watchdog thread while the game runs: a snapshot)
+std::string cdrom_debug() {
+    char s[200];
+    std::snprintf(s, sizeof s,
+                  "stat %02X mode %02X reading %d playing %d busy %d pos %u setloc %u%s int flag %02X enable %02X, %zu responses pending, %zu bytes waiting",
+                  g_stat, g_mode, g_reading, g_playing, g_busy, g_pos, g_setloc, g_setloc_pending ? " (pending)" : "", g_int_flag,
+                  g_int_enable, g_pending.size(), g_data.size() > g_data_pos ? g_data.size() - g_data_pos : (size_t)0);
+    return s;
+}
 
 // ================================================================ save states
 
