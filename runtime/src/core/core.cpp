@@ -398,7 +398,7 @@ uint32_t cop0_read(R3000* c, int reg) {
 void cop0_write(R3000* c, int reg, uint32_t v) {
     c->cop0[reg] = v;
     if (reg == 12) {
-        psx_cache_isolated = (v >> 16) & 1;
+        psx_cache_isolated = ((v >> 16) & 1) | (psx_cache_isolated & 2);  // (bit 1: a ghost render's journal)
         if (irq_should_take(c)) sched_request_check(c);
     }
 }
@@ -492,10 +492,15 @@ uint32_t mem_read_slow(R3000* c, uint32_t addr, int size) {
 
 void mem_write_slow(R3000* c, uint32_t addr, uint32_t v, int size) {
     uint32_t p = addr & 0x1FFFFFFF;
-    if (psx_cache_isolated) return;  // BIOS cache flush pattern; never reached with HLE
+    if (psx_cache_isolated & 1) return;  // BIOS cache flush pattern; never reached with HLE
     if (addr >= 0xFFFE0000u) return;
-    if (PSX_IS_RAM(addr)) {  // only reached when cache isolation toggled mid-path
+    if (PSX_IS_RAM(addr)) {  // a ghost render's store (or cache isolation toggled mid-path)
+        ghost_note(addr);
         std::memcpy(psx_ram + (p & (PSX_RAM_SIZE - 1)), &v, size);
+        return;
+    }
+    if (PSX_IS_SCRATCH(addr)) {  // a ghost render's store (the scratchpad is put back whole)
+        std::memcpy(psx_scratch + (addr & (PSX_SCRATCH_SIZE - 1)), &v, size);
         return;
     }
     if (p >= 0x1F801000 && p < 0x1F801024) { g_memctrl[(p - 0x1F801000) >> 2] = v; return; }
@@ -634,8 +639,31 @@ void sched_refresh(R3000* c) { sched_update(c); }
 
 // ================================================================ ghost mode (sim60.cpp)
 
+// Instead of copying all of RAM and its shadows (10 MB) in and back out, the ghost's stores are
+// journaled: while it runs, psx_cache_isolated bit 1 sends every store down mem_write_slow, which
+// notes each RAM word's old value and shadow the first time the ghost writes it (as do the other
+// writers: DMA, the native 3D shadows); the end puts those back. Outside a ghost the stores' fast
+// path is unchanged.
+struct GhostWord {
+    uint32_t index;  // word index in RAM
+    uint32_t ram;
+    PgxpVal pgxp;
+};
+static std::vector<GhostWord> g_journal;
+static std::vector<uint8_t> g_journal_mark(PSX_RAM_SIZE / 4);  // == g_journal_gen: noted in this ghost
+static uint8_t g_journal_gen = 0;
+
+void ghost_note(uint32_t addr) {
+    if (!(psx_cache_isolated & 2)) return;
+    const uint32_t i = (addr & (PSX_RAM_SIZE - 1)) >> 2;
+    if (g_journal_mark[i] == g_journal_gen) return;
+    g_journal_mark[i] = g_journal_gen;
+    GhostWord w{i, 0, pgxp_ram[i]};
+    std::memcpy(&w.ram, psx_ram + i * 4, 4);
+    g_journal.push_back(w);
+}
+
 struct CoreGhostSnap {
-    std::vector<uint8_t> ram;
     uint8_t scratch[PSX_SCRATCH_SIZE];
     uint64_t ev_time[(int)Ev::Count];
     bool ev_active[(int)Ev::Count];
@@ -644,7 +672,6 @@ struct CoreGhostSnap {
     int cache_isolated;
     // precise 3D's shadows (gte.cpp): a ghost render's stores would otherwise leave its in-between
     // positions behind, taken later wherever the real word has the same whole-pixel value
-    std::vector<PgxpVal> pgxp_ram;
     PgxpVal pgxp_scratch[PSX_SCRATCH_SIZE / 4], pgxp_gpr[32], rgb2;
     double mac[4];
     bool mac_ok;
@@ -652,7 +679,8 @@ struct CoreGhostSnap {
 static CoreGhostSnap g_snap;
 
 void core_ghost_begin(R3000* c, uint64_t cycle_budget, std::jmp_buf* abort) {
-    g_snap.ram.assign(psx_ram, psx_ram + PSX_RAM_SIZE);
+    if (++g_journal_gen == 0) std::fill(g_journal_mark.begin(), g_journal_mark.end(), 0), g_journal_gen = 1;
+    g_journal.clear();
     std::memcpy(g_snap.scratch, psx_scratch, sizeof psx_scratch);
     std::memcpy(g_snap.ev_time, g_ev_time, sizeof g_ev_time);
     std::memcpy(g_snap.ev_active, g_ev_active, sizeof g_ev_active);
@@ -660,8 +688,7 @@ void core_ghost_begin(R3000* c, uint64_t cycle_budget, std::jmp_buf* abort) {
     g_snap.istat = g_istat;
     g_snap.imask = g_imask;
     g_snap.cache_isolated = psx_cache_isolated;
-    // ponytail: copies all 8 MB of shadows (~1 ms per ghost render); journal the ghost's shadow stores if that shows up in profiles
-    g_snap.pgxp_ram.assign(pgxp_ram, pgxp_ram + PSX_RAM_SIZE / 4);
+    psx_cache_isolated |= 2;  // every store through mem_write_slow: journaled
     std::memcpy(g_snap.pgxp_scratch, pgxp_scratch, sizeof pgxp_scratch);
     std::memcpy(g_snap.pgxp_gpr, pgxp_gpr, sizeof pgxp_gpr);
     g_snap.rgb2 = g_rgb2_exact;
@@ -676,7 +703,7 @@ void core_ghost_begin(R3000* c, uint64_t cycle_budget, std::jmp_buf* abort) {
 
 // Puts memory, scheduler and interrupt state back as they were at core_ghost_begin.
 int core_ghost_end(R3000* c) {
-    std::memcpy(psx_ram, g_snap.ram.data(), PSX_RAM_SIZE);
+    for (const GhostWord& w : g_journal) std::memcpy(psx_ram + w.index * 4, &w.ram, 4), pgxp_ram[w.index] = w.pgxp;
     std::memcpy(psx_scratch, g_snap.scratch, sizeof psx_scratch);
     std::memcpy(g_ev_time, g_snap.ev_time, sizeof g_ev_time);
     std::memcpy(g_ev_active, g_snap.ev_active, sizeof g_ev_active);
@@ -684,14 +711,11 @@ int core_ghost_end(R3000* c) {
     g_istat = g_snap.istat;
     g_imask = g_snap.imask;
     psx_cache_isolated = g_snap.cache_isolated;
-    if (!g_snap.pgxp_ram.empty()) {
-        std::memcpy(pgxp_ram, g_snap.pgxp_ram.data(), sizeof pgxp_ram);
-        std::memcpy(pgxp_scratch, g_snap.pgxp_scratch, sizeof pgxp_scratch);
-        std::memcpy(pgxp_gpr, g_snap.pgxp_gpr, sizeof pgxp_gpr);
-        g_rgb2_exact = g_snap.rgb2;
-        std::memcpy(g_mac_exact, g_snap.mac, sizeof g_mac_exact);
-        g_mac_exact_ok = g_snap.mac_ok;
-    }
+    std::memcpy(pgxp_scratch, g_snap.pgxp_scratch, sizeof pgxp_scratch);
+    std::memcpy(pgxp_gpr, g_snap.pgxp_gpr, sizeof pgxp_gpr);
+    g_rgb2_exact = g_snap.rgb2;
+    std::memcpy(g_mac_exact, g_snap.mac, sizeof g_mac_exact);
+    g_mac_exact_ok = g_snap.mac_ok;
     g_ghost = false;
     g_ghost_abort = nullptr;
     sched_update(c);

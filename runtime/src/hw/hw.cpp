@@ -122,6 +122,7 @@ void dma_run(R3000* c, int ch) {
         uint32_t n = word_count(d);
         for (uint32_t i = 0; i < n; i++) {
             uint32_t v = i == n - 1 ? 0x00FFFFFF : ((addr - 4) & 0x1FFFFC);
+            ghost_note(addr);
             std::memcpy(psx_ram + addr, &v, 4);
             addr = (addr - 4) & 0x1FFFFC;
         }
@@ -154,7 +155,7 @@ void dma_run(R3000* c, int ch) {
             case 1: w = mdec_dma_out(); std::memcpy(p, &w, 4); break;
             case 2:
                 if (from_ram) { std::memcpy(&w, p, 4); gpu_write_gp0(c, w); }
-                else { w = gpu_read_data(c); std::memcpy(p, &w, 4); }
+                else { w = gpu_read_data(c); ghost_note(addr); std::memcpy(p, &w, 4); }
                 break;
             case 3: w = cdrom_dma_read_word(); std::memcpy(p, &w, 4); break;
             case 4:

@@ -415,6 +415,7 @@ extern "C" int psx_hook_beam(R3000* c) {
     if (h0)  // the history word just written: this draw's exact position
         for (int i = 0; i < n; i++) {
             const uint32_t a = pts + 0x24 * i + 0x18;
+            ghost_note(a), ghost_note(a + 4);  // (shadows only: no store journals them)
             if (!drop[i] && rd(c, a) == sxy[i]) pgxp_ram[phys(a) >> 2] = PgxpVal{sxy[i], pt[i].sx, pt[i].sy, pt[i].z};
             if (h0 == 1) pgxp_ram[phys(a + 4) >> 2] = pgxp_ram[phys(a) >> 2];
         }

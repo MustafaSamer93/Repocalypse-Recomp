@@ -221,6 +221,7 @@ void core_frame_drawn(R3000* c);  // a frame's ordering table was drawn (gpu_run
 // scheduler and interrupts back. Exceeding the cycle budget longjmps to `abort`.
 void core_ghost_begin(R3000* c, uint64_t cycle_budget, std::jmp_buf* abort);
 int core_ghost_end(R3000* c);  // returns how many sound/CD/movie writes were dropped
+void ghost_note(uint32_t addr);  // a RAM word is about to change (other than by a store): journaled in a ghost
 bool core_in_ghost();
 
 void dispatch_register(const RecompFunc* table, uint32_t count);

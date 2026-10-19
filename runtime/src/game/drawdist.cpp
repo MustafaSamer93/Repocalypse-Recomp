@@ -39,7 +39,7 @@ constexpr uint32_t kFar = 0x800FFAEC;
 constexpr int32_t kMaxFar = 16380;  // the ordering tables' depth range (see above)
 
 int32_t rd32(uint32_t a) { int32_t v; std::memcpy(&v, ram_ptr(a), 4); return v; }
-void wr32(uint32_t a, int32_t v) { std::memcpy(ram_ptr(a), &v, 4); }
+void wr32(uint32_t a, int32_t v) { ghost_note(a), std::memcpy(ram_ptr(a), &v, 4); }
 
 }  // namespace
 
@@ -89,6 +89,7 @@ int32_t isqrt(int64_t v) {
 
 void put_plane(int i, int32_t x, int32_t z) {
     const int16_t p[4] = {(int16_t)x, 0, (int16_t)z, 0};
+    ghost_note(0x800F25D0 + 8 * i), ghost_note(0x800F25D4 + 8 * i);
     std::memcpy(ram_ptr(0x800F25D0 + 8 * i), p, 8);
 }
 
