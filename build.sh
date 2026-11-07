@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds the native Linux version of Apocalypse from your own disc image.
+# Builds the native Linux or macOS version of Apocalypse from your own disc image.
 #   1. put your disc image (.cue and .bin files, any names, or just the .bin files) in "assets/image"
 #   2. ./build.sh
 #   3. ./repocalypse (it is made in this folder)
@@ -9,9 +9,11 @@
 #     libxrandr-dev libxcursor-dev libxi-dev libxss-dev libxtst-dev libwayland-dev \
 #     libxkbcommon-dev wayland-protocols libasound2-dev libpulse-dev libudev-dev libdbus-1-dev \
 #     pkg-config libavformat-dev libavcodec-dev libswscale-dev libswresample-dev  # (replacement movies)
+# On macOS: Xcode command line tools (xcode-select --install) and
+#   brew install cmake ninja pkg-config ffmpeg   # ffmpeg is optional (replacement movies)
 set -e
 cd "$(dirname "$0")"
-BUILD=${BUILD_DIR:-build-linux}
+case "$(uname -s)" in Darwin) BUILD=${BUILD_DIR:-build-mac};; *) BUILD=${BUILD_DIR:-build-linux};; esac
 
 if ! ls assets/image/*.cue assets/image/*.bin >/dev/null 2>&1; then
     echo 'Put your disc image (.cue/.bin) in "assets/image" first'; exit 1

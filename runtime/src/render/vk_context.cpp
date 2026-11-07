@@ -147,7 +147,7 @@ bool ready() { return device != VK_NULL_HANDLE; }
 
 bool init(SDL_Window* window) {
     if (volkInitialize() != VK_SUCCESS) {
-        log_msg(LogCat::Host, "Vulkan: no Vulkan driver (vulkan-1.dll) found");
+        log_msg(LogCat::Host, "Vulkan: no Vulkan driver found");
         return false;
     }
     Uint32 next = 0;

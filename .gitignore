@@ -21,3 +21,4 @@ debug/
 /repocalypse
 build-linux/
 build-linux-dist/
+build-mac/

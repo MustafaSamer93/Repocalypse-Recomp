@@ -1,7 +1,7 @@
 # Repocalypse-Recomp
 
 A static recompilation of **Apocalypse** (PlayStation, Neversoft/Activision 1998, NTSC-U
-`SLUS-00373`) to native Windows and Linux code. The game's MIPS R3000A machine code is
+`SLUS-00373`) to native Windows, Linux and macOS code. The game's MIPS R3000A machine code is
 translated ahead of time into C, compiled with a normal compiler, and linked against a runtime
 that reimplements the PlayStation hardware and BIOS. There is no CPU emulator in the loop.
 
@@ -40,9 +40,12 @@ Put your disc image (its `.cue` and `.bin` files, any names, or only the `.bin` 
   3.10+ and Git. Run `build.bat`.
 - **Linux**: cmake, ninja, clang or gcc, python3, git and SDL3's build dependencies (listed at
   the top of `build.sh`). Run `./build.sh`; `tools/package_linux.sh` makes a portable build.
+- **macOS**: Xcode command line tools, `brew install cmake ninja pkg-config` (plus `ffmpeg` for
+  replacement movies), Python 3 and Git. Run `./build.sh`. OpenGL runs through Apple's driver;
+  Vulkan is used only if a Vulkan loader (MoltenVK) is installed.
 
 CMake fetches SDL3, the Vulkan headers, volk, glslang and stb; no Vulkan SDK is needed. The
-result, `repocalypse.exe` (Windows) or `repocalypse` (Linux), is made in the project folder and
+result, `repocalypse.exe` (Windows) or `repocalypse` (Linux, macOS), is made in the project folder and
 needs nothing else installed. It finds `assets/` next to itself and keeps `saves/` and
 `settings.ini` there.
 
